@@ -1,0 +1,13 @@
+[Unit]
+Description=Storm guest isolation firewall
+Before=network-pre.target hostapd.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/storm/storm-firewall.nft
+ExecStop=/usr/sbin/nft delete table inet storm_guard
+
+[Install]
+WantedBy=multi-user.target

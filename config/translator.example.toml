@@ -1,0 +1,41 @@
+# storm-translator (Proxmox VM) configuration -> /etc/storm/translator.toml
+# This VM is on the TRUSTED side. It acts only on SB1 requests that arrive on the
+# private channel from an allowlisted edge node, and runs one HA script per request.
+
+[radio]
+# Porch T-Beam on your Wi-Fi, reached over its TCP API (port 4403).
+# Give it a DHCP reservation. The node accepts ONE API client at a time:
+# close the phone app / CLI while the translator runs.
+host = "porch-tbeam.lan"
+# port = "/dev/ttyACM0"     # alternatively, a T-Beam on USB passed through to the VM
+private_channel = 1
+# Node ID(s) of the edge T-Beam. Requests from anyone else are dropped.
+edge_node_ids = ["!e1e2e3e4"]
+
+[homeassistant]
+url = "http://homeassistant.lan:8123"
+# A long-lived token from a dedicated, non-admin HA user, in a root-only file:
+#   install -m 600 /dev/stdin /etc/storm/ha.token
+token_file = "/etc/storm/ha.token"
+verify_tls = true
+# ca_file = "/etc/storm/ha-ca.pem"
+timeout_s = 5
+# When this entity is not "on", requests are answered CLOSED. Remove to always allow.
+show_entity = "input_boolean.storm_show_running"
+
+[scripts]
+# One HA script per verb (see homeassistant/storm_scripts.yaml).
+strike = "script.storm_strike"
+storm = "script.storm_storm"
+fire = "script.storm_fire"
+heart = "script.storm_heart"
+
+[limits]
+# Defense in depth: even a compromised edge station can't exceed this.
+per_minute = 12
+burst = 3
+
+[state]
+# Bolt counter for "Bolt #347 tonight". A night starts at reset_hour local time.
+path = "/var/lib/storm-translator/bolts.json"
+reset_hour = 12

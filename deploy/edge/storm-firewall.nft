@@ -1,0 +1,27 @@
+#!/usr/sbin/nft -f
+# Guest isolation for the edge station -> /etc/storm/storm-firewall.nft
+# Loaded by storm-firewall.service. Its own table, so it doesn't fight other rules.
+
+table inet storm_guard
+delete table inet storm_guard
+
+table inet storm_guard {
+    chain input {
+        type filter hook input priority filter; policy accept;
+        iifname != "wlan0" accept
+
+        ct state established,related accept
+        udp dport { 53, 67 } accept     # DNS and DHCP
+        tcp dport 53 accept
+        tcp dport 80 accept             # the Storm page
+        icmp type echo-request limit rate 5/second accept
+        # tcp dport 22 accept           # SSH over the hotspot: setup only, then comment out
+        counter drop
+    }
+
+    # Nothing is ever routed through this box: no internet, no LAN, no guest-to-guest.
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+        counter drop
+    }
+}

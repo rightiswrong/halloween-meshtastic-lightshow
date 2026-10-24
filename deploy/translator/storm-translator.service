@@ -1,0 +1,32 @@
+[Unit]
+Description=Storm translator (porch Meshtastic node -> Home Assistant scripts)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=storm-translator
+Group=storm-translator
+# For a T-Beam passed through to the VM over USB instead of TCP, uncomment this
+# AND set PrivateDevices=no below (otherwise the serial device is hidden):
+# SupplementaryGroups=dialout
+ExecStart=/opt/storm-translator/bin/storm-translator --config /etc/storm/translator.toml
+Restart=always
+RestartSec=5
+StateDirectory=storm-translator
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

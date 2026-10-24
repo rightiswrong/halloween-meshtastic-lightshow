@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stormshow"
+version = "0.1.0"
+description = "Meshtastic-triggered Halloween lightning: an edge Storm BBS with a guest hotspot, and a trusted-side translator to Home Assistant"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["meshtastic>=2.5"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+storm-bbs = "stormshow.bbs.__main__:main"
+storm-translator = "stormshow.translator.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"stormshow.bbs" = ["static/*.html"]
+
+[tool.ruff]
+line-length = 120
+src = ["src", "."]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["UP038"]  # deprecated rule; isinstance tuples are fine
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Unit and end-to-end tests
+        run: python -m unittest discover -s tests -t . -v
+      - name: The meshtastic API calls we rely on still exist
+        run: |
+          python - <<'PY'
+          import inspect
+          from meshtastic.mesh_interface import MeshInterface
+          from meshtastic.serial_interface import SerialInterface
+          from meshtastic.tcp_interface import TCPInterface
+          sig = inspect.signature(MeshInterface.sendText).parameters
+          for p in ("destinationId", "wantAck", "channelIndex"):
+              assert p in sig, p
+          assert "devPath" in inspect.signature(SerialInterface.__init__).parameters
+          assert "hostname" in inspect.signature(TCPInterface.__init__).parameters
+          import pubsub  # noqa: F401
+          print("meshtastic API ok")
+          PY
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check src tests
+      - run: ruff format --check src tests
+      - name: Shell and config syntax
+        run: |
+          bash -n deploy/edge/install.sh
+          bash -n deploy/translator/install.sh
+          sudo apt-get install -y -q nftables
+          sudo nft -c -f deploy/edge/storm-firewall.nft
+          python -c "import yaml" 2>/dev/null || pip install pyyaml
+          python - <<'PY'
+          import yaml
+          class L(yaml.SafeLoader): pass
+          yaml.load(open("homeassistant/packages/storm.yaml"), Loader=L)
+          print("HA package parses")
+          PY

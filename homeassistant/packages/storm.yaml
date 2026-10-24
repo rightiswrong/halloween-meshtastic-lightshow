@@ -1,0 +1,233 @@
+# Storm show: Home Assistant side of halloween-meshtastic-lightshow.
+#
+# Install as a package (one file, everything in it):
+#   1. configuration.yaml:
+#        homeassistant:
+#          packages: !include_dir_named packages
+#   2. Copy this file to /config/packages/storm.yaml.
+#   3. Replace the three placeholders below (search for CHANGE ME):
+#        light.spooky_overhead        your Gledopto light (Spooky Overhead firmware)
+#        media_player.porch_speaker   the speaker that plays the thunder
+#        storm/thunder_*.mp3          your sound files, in the media folder: /media/storm/
+#   4. Developer tools -> YAML -> reload Scripts and Input booleans (or restart).
+#
+# How a strike feels: the overhead strip flashes first, then the thunder arrives a
+# random 0.4-2.2 s later, as if the bolt were a few hundred metres away. That ordering
+# also hides any audio latency, so nothing has to be synchronised.
+#
+# The translator calls these four scripts with script.turn_on and nothing else.
+# spooky_sound.send_cue without a device_id targets every Spooky Sound device, i.e.
+# the Gledopto once it is added in the Spooky Sound integration.
+
+input_boolean:
+  storm_show_running:
+    name: Storm show running
+    icon: mdi:weather-lightning
+  storm_light_borrowed:
+    # On while a summon has the overhead light and a restore is pending.
+    name: Storm has borrowed the light
+    icon: mdi:lightbulb-auto
+    initial: false
+
+script:
+  # ------------------------------------------------------------ helpers
+  storm_prepare:
+    alias: "Storm: prepare the overhead light"
+    description: Snapshot the light (once per burst of activity) and switch its effect.
+    mode: queued
+    fields:
+      effect:
+        description: Spooky effect name
+        example: Lightning Storm
+    sequence:
+      - if:
+          # Snapshot only for the first summon of a burst, so the light goes back to
+          # how it was before the first one, not to an earlier summon's effect.
+          - condition: state
+            entity_id: input_boolean.storm_light_borrowed
+            state: "off"
+        then:
+          - action: scene.create
+            data:
+              scene_id: storm_before
+              snapshot_entities:
+                - light.spooky_overhead # CHANGE ME
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.storm_light_borrowed
+      - if:
+          - condition: template
+            value_template: "{{ state_attr('light.spooky_overhead', 'effect') != effect }}" # CHANGE ME
+        then:
+          - action: light.turn_on
+            target:
+              entity_id: light.spooky_overhead # CHANGE ME
+            data:
+              effect: "{{ effect }}"
+              brightness_pct: 100
+          - delay:
+              milliseconds: 300
+
+  storm_settle:
+    alias: "Storm: restore the light after a while"
+    description: Restarted by every summon; restores the snapshot once things go quiet.
+    mode: restart
+    fields:
+      seconds:
+        example: 10
+    sequence:
+      - delay:
+          seconds: "{{ seconds | default(10) | int }}"
+      - action: scene.turn_on
+        target:
+          entity_id: scene.storm_before
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.storm_light_borrowed
+
+  storm_thunder_sound:
+    alias: "Storm: thunder clip"
+    mode: parallel
+    sequence:
+      - delay:
+          milliseconds: "{{ range(400, 2200) | random }}"
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.porch_speaker # CHANGE ME
+        data:
+          # CHANGE ME: files in /media/storm/. Add "announce: true" if your player supports it.
+          media_content_id: "media-source://media_source/local/storm/thunder_{{ range(1, 4) | random }}.mp3"
+          media_content_type: music
+
+  # ------------------------------------------------------------ called by the translator
+  storm_strike:
+    alias: "Storm: strike"
+    description: One lightning bolt and its thunder. strength 0..1 (BOOM = 1.0).
+    mode: queued
+    max: 5
+    fields:
+      strength:
+        example: 0.8
+    sequence:
+      - action: script.storm_prepare
+        data:
+          effect: Lightning Storm
+      - action: spooky_sound.send_cue
+        data:
+          cue: thunder
+          strength: "{{ strength | default(0.8) | float }}"
+      - action: script.turn_on
+        target:
+          entity_id: script.storm_thunder_sound
+      - action: script.turn_on
+        target:
+          entity_id: script.storm_settle
+        data:
+          variables:
+            seconds: 10
+
+  storm_storm:
+    alias: "Storm: thirty seconds of storm"
+    mode: single
+    sequence:
+      - action: script.storm_prepare
+        data:
+          effect: Lightning Storm
+      - action: spooky_sound.send_cue
+        data:
+          cue: rumble
+          strength: 0.6
+      - repeat:
+          count: 6
+          sequence:
+            - action: spooky_sound.send_cue
+              data:
+                cue: thunder
+                strength: "{{ (range(55, 100) | random) / 100 }}"
+            - action: script.turn_on
+              target:
+                entity_id: script.storm_thunder_sound
+            - action: spooky_sound.send_cue
+              data:
+                cue: rumble
+                strength: 0.5
+            - delay:
+                milliseconds: "{{ range(3000, 6000) | random }}"
+      - action: script.turn_on
+        target:
+          entity_id: script.storm_settle
+        data:
+          variables:
+            seconds: 8
+
+  storm_fire:
+    alias: "Storm: wake the flames"
+    mode: single
+    sequence:
+      - action: script.storm_prepare
+        data:
+          effect: Candle Flicker
+      - repeat:
+          count: 5
+          sequence:
+            - action: spooky_sound.send_cue
+              data:
+                cue: fire
+                strength: 0.85
+            - action: spooky_sound.send_cue
+              data:
+                cue: crackle
+                count: "{{ range(6, 14) | random }}"
+            - delay:
+                seconds: 3
+      - action: script.turn_on
+        target:
+          entity_id: script.storm_settle
+        data:
+          variables:
+            seconds: 6
+
+  storm_heart:
+    alias: "Storm: the heart beneath the floor"
+    mode: single
+    sequence:
+      - action: script.storm_prepare
+        data:
+          effect: Tell-Tale Heart
+      - repeat:
+          count: 16
+          sequence:
+            - action: spooky_sound.send_cue
+              data:
+                cue: beat
+                strength: "{{ [0.5 + repeat.index * 0.03, 1.0] | min }}"
+            - delay:
+                # Speeds up as it goes, like the story.
+                milliseconds: "{{ [1100 - repeat.index * 35, 550] | max }}"
+      - action: script.turn_on
+        target:
+          entity_id: script.storm_settle
+        data:
+          variables:
+            seconds: 5
+
+# Optional: show hours. Edit the times, or toggle the helper by hand.
+automation:
+  - id: storm_show_open
+    alias: "Storm: open the show"
+    triggers:
+      - trigger: time
+        at: "18:00:00"
+    actions:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.storm_show_running
+  - id: storm_show_close
+    alias: "Storm: close the show"
+    triggers:
+      - trigger: time
+        at: "22:00:00"
+    actions:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.storm_show_running

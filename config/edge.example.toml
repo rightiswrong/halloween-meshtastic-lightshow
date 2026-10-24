@@ -1,0 +1,31 @@
+# storm-bbs (edge CM4) configuration -> /etc/storm/edge.toml
+# This box is on the UNTRUSTED side: it holds no Home Assistant token and no
+# home Wi-Fi credentials. Its only link to the house is the private LoRa channel.
+
+[radio]
+# Edge T-Beam on USB. Find it with: ls /dev/serial/by-id/
+port = "/dev/ttyACM0"
+# Channel index of the private channel on BOTH T-Beams (same name and PSK). Not 0.
+private_channel = 1
+# Node ID of the porch T-Beam (meshtastic --host <porch> --info, "Owner" line / "!xxxxxxxx").
+porch_node_id = "!a1b2c3d4"
+# How long a guest waits for the translator's answer before "the spirits didn't answer".
+reply_timeout_s = 25
+
+[limits]
+# One summon per guest (web client IP or mesh node) per this many seconds.
+guest_cooldown_s = 30
+# Shared ceiling across all guests: sustained rate and burst.
+global_per_minute = 6
+global_burst = 3
+
+[web]
+# The hotspot address (see deploy/edge/). Port 80 so captive-portal probes land here.
+listen = "10.66.0.1"
+port = 80
+portal_url = "http://10.66.0.1/"
+title = "Summon the Storm"
+
+[store]
+# SQLite log of summons (who, what, outcome). Remove to keep no log.
+path = "/var/lib/storm-bbs/storm.db"
