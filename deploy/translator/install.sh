@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Translator installer: Ubuntu Server 26.04 VM on Proxmox, same subnet as Home Assistant.
-#   sudo ./deploy/translator/install.sh
+# Translator installer: Raspberry Pi on the latest Raspberry Pi OS (Lite is enough),
+# on the same subnet as Home Assistant. Any Debian-based Linux works the same way.
+#   sudo ./deploy/translator/install.sh          # porch T-Beam over Wi-Fi/TCP (default)
+#   sudo ./deploy/translator/install.sh --usb    # porch T-Beam plugged into this Pi
 # Re-running is safe. It never edits /etc/storm/translator.toml or the token once they exist.
 set -euo pipefail
 
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="$REPO/deploy/translator"
+USB=0
+[[ "${1:-}" == "--usb" ]] && USB=1
 
 echo "==> packages"
 apt-get update -q
@@ -33,6 +37,12 @@ if [[ ! -f /etc/storm/ha.token ]]; then
 fi
 
 install -m 644 "$HERE/storm-translator.service" /etc/systemd/system/storm-translator.service
+if [[ $USB -eq 1 ]]; then
+  usermod -aG dialout storm-translator
+  install -d -m 755 /etc/systemd/system/storm-translator.service.d
+  install -m 644 "$HERE/usb-radio.conf" /etc/systemd/system/storm-translator.service.d/usb-radio.conf
+  echo "    USB radio: set [radio] port (not host) in /etc/storm/translator.toml"
+fi
 systemctl daemon-reload
 systemctl enable storm-translator.service
 

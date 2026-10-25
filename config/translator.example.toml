@@ -1,5 +1,5 @@
-# storm-translator (Proxmox VM) configuration -> /etc/storm/translator.toml
-# This VM is on the TRUSTED side. It acts only on SB1 requests that arrive on the
+# storm-translator (Raspberry Pi) configuration -> /etc/storm/translator.toml
+# This Pi is on the TRUSTED side. It acts only on SB1 requests that arrive on the
 # private channel from an allowlisted edge node, and runs one HA script per request.
 
 [radio]
@@ -7,15 +7,17 @@
 # Give it a DHCP reservation. The node accepts ONE API client at a time:
 # close the phone app / CLI while the translator runs.
 host = "porch-tbeam.lan"
-# port = "/dev/ttyACM0"     # alternatively, a T-Beam on USB passed through to the VM
+# Alternatively, if this Pi sits near the porch, plug the porch T-Beam into it over USB
+# (the radio then needs no Wi-Fi) and install with --usb. Prefer /dev/serial/by-id/... :
+# port = "/dev/ttyACM0"
 private_channel = 1
 # Node ID(s) of the edge T-Beam. Requests from anyone else are dropped.
 edge_node_ids = ["!e1e2e3e4"]
 
 [homeassistant]
 url = "http://homeassistant.lan:8123"
-# A long-lived token from a dedicated, non-admin HA user, in a root-only file:
-#   install -m 600 /dev/stdin /etc/storm/ha.token
+# A long-lived token from a dedicated, non-admin HA user. install.sh creates this file
+# (mode 640, root:storm-translator); paste the token with: sudoedit /etc/storm/ha.token
 token_file = "/etc/storm/ha.token"
 verify_tls = true
 # ca_file = "/etc/storm/ha-ca.pem"

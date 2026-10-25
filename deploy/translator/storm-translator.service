@@ -6,9 +6,8 @@ Wants=network-online.target
 [Service]
 User=storm-translator
 Group=storm-translator
-# For a T-Beam passed through to the VM over USB instead of TCP, uncomment this
-# AND set PrivateDevices=no below (otherwise the serial device is hidden):
-# SupplementaryGroups=dialout
+# Porch T-Beam on USB instead of TCP: install.sh --usb adds a drop-in
+# (usb-radio.conf) with SupplementaryGroups=dialout and PrivateDevices=no.
 ExecStart=/opt/storm-translator/bin/storm-translator --config /etc/storm/translator.toml
 Restart=always
 RestartSec=5

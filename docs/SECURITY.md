@@ -4,7 +4,7 @@
 
 | Untrusted (edge station) | Trusted (home LAN) |
 |---|---|
-| Open guest hotspot, captive portal, `storm-bbs`, edge T-Beam | Porch T-Beam, `storm-translator` VM, Home Assistant, lights |
+| Open guest hotspot, captive portal, `storm-bbs`, edge T-Beam | Porch T-Beam, `storm-translator` Pi, Home Assistant, lights |
 
 The two sides share **no IP network**. The only link is the private Meshtastic channel,
 which is encrypted with a PSK held by just the two T-Beams.
@@ -36,7 +36,7 @@ which is encrypted with a PSK held by just the two T-Beams.
 | A guest phone | Summon within the cooldowns, which is the intended use |
 | The edge CM4 (root) | Send allowed commands up to the translator's rate limit, and change what guests see. They gain no LAN access and no HA token |
 | The private-channel PSK | The same as the CM4 case: allowed commands, up to the rate limit |
-| The translator VM | Everything the HA token can do, which is why the token stays there and nowhere else |
+| The translator Pi | Everything the HA token can do, which is why the token stays there and nowhere else |
 
 ## Operational checklist
 

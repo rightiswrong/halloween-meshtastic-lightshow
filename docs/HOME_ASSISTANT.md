@@ -47,10 +47,10 @@ show hours, remove `show_entity` from `translator.toml`.
 1. Go to Settings → People → **Add person**. Name it `storm-translator`, allow login,
    and leave *Administrator* off.
 2. Log in as that user, then go to Profile → Security → **Long-lived access tokens** → Create.
-3. On the VM, paste the token with `sudoedit /etc/storm/ha.token`.
+3. On the translator Pi, paste the token with `sudoedit /etc/storm/ha.token`.
 
 > **Important:** Home Assistant has no per-service permissions for tokens. Any valid
 > token can call any service. What limits the mesh to these four scripts is the
-> translator's allowlist, not the token. So keep the token only on the VM, readable only
+> translator's allowlist, not the token. So keep the token only on the translator Pi, readable only
 > by the `storm-translator` user (the installer sets this up), and never put it on the
 > edge station.

@@ -15,7 +15,7 @@ translator turns that line into one Home Assistant script.
 ┌───────────────────────────────────┐   LoRa 915   ┌───────────────────────────────────────┐
 │ Guest phone ─Wi-Fi─► CM4 hotspot  │   private    │ Porch T-Beam (Wi-Fi client, TCP 4403) │
 │   captive portal + button page    │   PSK chan   │   │                                   │
-│   storm-bbs: menu, cooldowns      │  ─────────►  │ storm-translator (Proxmox VM)         │
+│   storm-bbs: menu, cooldowns      │  ─────────►  │ storm-translator (Raspberry Pi)       │
 │   Edge T-Beam (USB) ◄── mesh DMs  │  SB1 lines   │   allowlist → one script.storm_*      │
 │ no LAN route · no HA token        │  ◄─────────  │ Home Assistant → Gledopto + speaker   │
 └───────────────────────────────────┘   OK/CLOSED  └───────────────────────────────────────┘
@@ -46,11 +46,11 @@ lines of Python, standard library plus `meshtastic`. If you'd also like a classi
 | Path | What |
 |---|---|
 | `src/stormshow/bbs/` | **storm-bbs** for the edge CM4: captive portal + button page, Meshtastic Storm Bot, cooldowns, SQLite log |
-| `src/stormshow/translator/` | **storm-translator** for the Proxmox VM: strict allowlist, Home Assistant REST client, bolt counter |
+| `src/stormshow/translator/` | **storm-translator** for the translator Pi: strict allowlist, Home Assistant REST client, bolt counter |
 | `src/stormshow/protocol.py` | The `SB1` wire protocol: the whole attack surface of the trusted side, in about 100 lines |
 | `homeassistant/packages/storm.yaml` | HA package: `script.storm_*`, show-hours helper, light snapshot and restore |
 | `deploy/edge/` | hostapd, dnsmasq (captive DNS), nftables isolation, systemd units, `install.sh` |
-| `deploy/translator/` | Hardened systemd unit and `install.sh` for Ubuntu 26.04 |
+| `deploy/translator/` | Hardened systemd unit and `install.sh` for Raspberry Pi OS (`--usb` for a USB-attached porch radio) |
 | `config/*.example.toml` | Annotated configs for both services |
 | `docs/` | [Radio setup](docs/RADIO_SETUP.md) · [Home Assistant](docs/HOME_ASSISTANT.md) · [Test plan](docs/TEST_PLAN.md) · [Security model](docs/SECURITY.md) |
 
@@ -60,10 +60,10 @@ lines of Python, standard library plus `meshtastic`. If you'd also like a classi
    private channel, the porch Wi-Fi and the edge GPS-off setting: [docs/RADIO_SETUP.md](docs/RADIO_SETUP.md).
 2. **Home Assistant.** Install the package, create a dedicated user and token, and add
    your thunder clips: [docs/HOME_ASSISTANT.md](docs/HOME_ASSISTANT.md).
-3. **Translator VM** (Ubuntu Server 26.04):
+3. **Translator Pi** (latest Raspberry Pi OS Lite, on the Home Assistant subnet):
    ```bash
    git clone https://github.com/rightiswrong/halloween-meshtastic-lightshow && cd halloween-meshtastic-lightshow
-   sudo ./deploy/translator/install.sh
+   sudo ./deploy/translator/install.sh        # add --usb if the porch T-Beam plugs into this Pi
    sudoedit /etc/storm/translator.toml /etc/storm/ha.token
    sudo -u storm-translator /opt/storm-translator/bin/storm-translator --check
    sudo -u storm-translator /opt/storm-translator/bin/storm-translator --test STRIKE   # lights + thunder?

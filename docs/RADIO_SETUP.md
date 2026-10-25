@@ -43,20 +43,34 @@ meshtastic --info | grep -iE 'owner|"id"'        # note the node ID: !xxxxxxxx
 On the CM4, the radio appears as `/dev/ttyACM0` or `/dev/ttyUSB0`, depending on its
 USB-serial chip. Prefer the stable name under `/dev/serial/by-id/` in `edge.toml`.
 
-## 4. Porch T-Beam (Wi-Fi client on the HA subnet)
+## 4. Porch T-Beam
+
+The translator Pi reaches the porch radio in one of two ways:
+
+| Link | When | `translator.toml` | Installer |
+|---|---|---|---|
+| **Wi-Fi / TCP** (default) | The Pi is indoors, away from the porch | `host = "<porch-ip>"` | `install.sh` |
+| **USB** | The Pi sits near the porch, with power for both | `port = "/dev/serial/by-id/..."` | `install.sh --usb` |
+
+Either way, set the owner name and role:
 
 ```bash
 meshtastic --set-owner "Storm Porch" --set-owner-short PRCH
 meshtastic --set device.role CLIENT
+meshtastic --info | grep -iE 'owner|"id"'        # note the node ID: !xxxxxxxx
+```
+
+For a **USB** porch radio, that is all. For **Wi-Fi / TCP**, also join it to the HA subnet:
+
+```bash
 meshtastic --set network.wifi_enabled true \
            --set network.wifi_ssid "YourHomeSSID" \
            --set network.wifi_psk "your-wifi-password"
-meshtastic --info | grep -iE 'owner|"id"'        # note the node ID: !xxxxxxxx
 ```
 
 - Turning on Wi-Fi turns off the T-Beam's Bluetooth, which is expected.
 - Give it a **DHCP reservation** and put that hostname or IP in `translator.toml` as `host`.
-- Check that it's reachable from the translator VM with `meshtastic --host <porch-ip> --info` (test T1).
+- Check that it's reachable from the translator Pi with `meshtastic --host <porch-ip> --info` (test T1).
 - **The node accepts one API client at a time.** Once `storm-translator` is running, the
   phone app and the CLI can't connect over the network. Stop the service first:
   `sudo systemctl stop storm-translator`.
@@ -66,7 +80,7 @@ meshtastic --info | grep -iE 'owner|"id"'        # note the node ID: !xxxxxxxx
 | File | Key | Value |
 |---|---|---|
 | `/etc/storm/edge.toml` (CM4) | `radio.porch_node_id` | the porch node's `!xxxxxxxx` |
-| `/etc/storm/translator.toml` (VM) | `radio.edge_node_ids` | `["!xxxxxxxx"]` of the edge node |
+| `/etc/storm/translator.toml` (translator Pi) | `radio.edge_node_ids` | `["!xxxxxxxx"]` of the edge node |
 
 ## Range check (test T8)
 

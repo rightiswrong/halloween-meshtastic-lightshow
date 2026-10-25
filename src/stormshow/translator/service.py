@@ -1,4 +1,4 @@
-"""The translator: runs on the trusted LAN (a Proxmox VM next to Home Assistant).
+"""The translator: runs on the trusted LAN (a Raspberry Pi on the Home Assistant subnet).
 
 It listens to the porch Meshtastic node and acts only on messages that
 
@@ -11,7 +11,7 @@ translator never forwards text, never runs anything else, and rate-limits itself
 even a compromised edge station can only do what a guest can.
 
 Note: Home Assistant has no per-service permissions for API tokens. The allowlist
-here, not the token, is what limits what the mesh can do. Keep the token on this VM.
+here, not the token, is what limits what the mesh can do. Keep the token on this Pi.
 """
 
 from __future__ import annotations
