@@ -10,7 +10,7 @@ import threading
 
 from .. import protocol as P
 from ..config import ConfigError, TranslatorConfig, read_toml
-from .ha import HAError, HomeAssistant
+from .ha import HAError, make_client
 from .service import BoltCounter, Translator
 
 log = logging.getLogger("storm-translator")
@@ -41,15 +41,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"storm-translator: config error: {err}", file=sys.stderr)
         return 2
 
-    ha = HomeAssistant(cfg.ha_url, cfg.ha_token, cfg.ha_timeout_s, cfg.ha_verify_tls, cfg.ha_ca_file)
+    ha = make_client(cfg)
+    if cfg.ha_mode == "token":
+        log.warning("token mode: this Pi holds a token that can call ANY Home Assistant service; prefer webhook mode")
 
     if args.check:
         try:
+            print(f"mode: {cfg.ha_mode}")
             print(f"Home Assistant: {ha.check()}")
-            if cfg.show_entity:
-                print(f"{cfg.show_entity} = {ha.state(cfg.show_entity)}")
-            for verb, entity in cfg.scripts.items():
-                print(f"{verb:7} -> {entity}: {ha.state(entity) or 'MISSING'}")
+            if cfg.show_hours:
+                print(f"show hours: {cfg.show_hours[0]:%H:%M}-{cfg.show_hours[1]:%H:%M} (local time)")
+            if cfg.ha_mode == "token":
+                if cfg.show_entity:
+                    print(f"{cfg.show_entity} = {ha.state(cfg.show_entity)}")
+                for verb, entity in cfg.scripts.items():
+                    print(f"{verb:7} -> {entity}: {ha.state(entity) or 'MISSING'}")
         except HAError as err:
             print(f"FAILED: {err}", file=sys.stderr)
             return 1
@@ -59,8 +65,8 @@ def main(argv: list[str] | None = None) -> int:
         level = 80 if args.test == "STRIKE" else None
         counter = BoltCounter(None, cfg.reset_hour)
         t = Translator(cfg, ha, transport=_NoRadio(), counter=counter)
-        reply = t.execute(P.Request("0000", args.test, level))
-        print(f"{args.test}: {reply.encode()}")
+        reply = t.execute(P.Request(1, args.test, level))
+        print(f"{args.test}: {reply.status}")
         return 0 if reply.status in (P.STATUS_OK, P.STATUS_CLOSED) else 1
 
     from ..mesh import MeshLink
@@ -94,7 +100,7 @@ class _NoRadio:
     def node_name(self, node_id):
         return None
 
-    def send_text(self, text, destination, channel):
+    def send_text(self, text, destination, channel, hop_limit=None):
         pass
 
 

@@ -1,21 +1,49 @@
 #!/usr/sbin/nft -f
-# Guest isolation for the edge station -> /etc/storm/storm-firewall.nft
-# Loaded by storm-firewall.service. Its own table, so it doesn't fight other rules.
+# Edge station firewall -> /etc/storm/storm-firewall.nft (loaded by storm-firewall.service)
+# Its own table, so it doesn't fight other rules. See SECURITY-AUDIT.md F-07, F-08.
 
 table inet storm_guard
 delete table inet storm_guard
 
 table inet storm_guard {
-    chain input {
-        type filter hook input priority filter; policy accept;
-        iifname != "wlan0" accept
+    # Guests with open connections to the page, for the per-guest connection cap.
+    set http_clients {
+        type ipv4_addr
+        size 1024
+        flags dynamic
+    }
 
+    chain input {
+        type filter hook input priority filter; policy drop;
+        iifname "lo" accept
         ct state established,related accept
-        udp dport { 53, 67 } accept     # DNS and DHCP
+        ct state invalid drop
+        iifname "wlan0" jump guest_in
+        iifname { "eth0", "end0" } jump wired_in
+        # any other interface (USB gadget, a plugged-in dongle...): nothing new gets in
+    }
+
+    # The open guest hotspot: DNS, DHCP and the page. Nothing else.
+    chain guest_in {
+        meta nfproto ipv6 drop                      # guests get IPv4 only
+        udp dport 67 accept                         # DHCP
+        udp dport 53 accept                         # DNS (captive: every name -> this box)
         tcp dport 53 accept
-        tcp dport 80 accept             # the Storm page
+        # At most 16 open connections per guest; the app also caps the total (F-07).
+        tcp dport 80 ct state new add @http_clients { ip saddr ct count over 16 } counter reject with tcp reset
+        tcp dport 80 ct state new limit rate over 30/second burst 60 packets counter drop
+        tcp dport 80 accept
         icmp type echo-request limit rate 5/second accept
-        # tcp dport 22 accept           # SSH over the hotspot: setup only, then comment out
+        counter drop
+    }
+
+    # Ethernet: for setup and maintenance only. SSH with keys (see 90-storm-ssh.conf).
+    # At the edge, leave the port unplugged (F-08).
+    chain wired_in {
+        tcp dport 22 accept
+        icmp type echo-request accept
+        meta l4proto ipv6-icmp accept               # IPv6 neighbour discovery on the wire
+        udp dport 68 accept                         # DHCP client replies
         counter drop
     }
 

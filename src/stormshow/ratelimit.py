@@ -52,8 +52,10 @@ class GuestLimiter:
         global_burst: int,
         now: float,
         max_keys: int = 2048,
+        per_key_burst: int = 1,
     ) -> None:
         self._cooldown = cooldown_s
+        self._per_key_burst = per_key_burst
         self._global = TokenBucket(global_rate_per_min / 60.0, global_burst, now)
         self._keys: OrderedDict[str, TokenBucket] = OrderedDict()
         self._max_keys = max_keys
@@ -62,7 +64,7 @@ class GuestLimiter:
     def _bucket(self, key: str, now: float) -> TokenBucket:
         bucket = self._keys.get(key)
         if bucket is None:
-            bucket = TokenBucket(1.0 / self._cooldown, 1, now)
+            bucket = TokenBucket(1.0 / self._cooldown, self._per_key_burst, now)
             self._keys[key] = bucket
             while len(self._keys) > self._max_keys:
                 self._keys.popitem(last=False)

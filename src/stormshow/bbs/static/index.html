@@ -5,39 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>{{TITLE}}</title>
-<style>
-  :root {
-    --bg: #0b0a12; --panel: #16131f; --ink: #f1ecff; --muted: #a59cbd;
-    --bolt: #cfe3ff; --pumpkin: #ff8a1f; --ok: #9fe870; --warn: #ffcc4d; --bad: #ff6b6b;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--ink);
-    font: 17px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  body { min-height: 100vh; display: flex; flex-direction: column; align-items: center;
-    padding: 24px 16px calc(24px + env(safe-area-inset-bottom)); }
-  body.flash { animation: flash 700ms ease-out; }
-  @keyframes flash { 0% { background: #e8f1ff; } 12% { background: var(--bg); }
-    20% { background: #c9dcff; } 100% { background: var(--bg); } }
-  main { width: 100%; max-width: 440px; }
-  h1 { font-size: 30px; line-height: 1.15; margin: 8px 0 4px; letter-spacing: .5px; }
-  .sub { color: var(--muted); margin: 0 0 20px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  button { appearance: none; border: 1px solid #2c2640; border-radius: 16px; background: var(--panel);
-    color: var(--ink); padding: 18px 12px; font: inherit; font-weight: 650; cursor: pointer;
-    min-height: 92px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
-    transition: transform 80ms ease, border-color 120ms ease; touch-action: manipulation; }
-  button .icon { font-size: 30px; line-height: 1; }
-  button .hint { font-size: 13px; font-weight: 400; color: var(--muted); }
-  button:active { transform: scale(.97); }
-  button.big { grid-column: 1 / -1; border-color: #4d6ea8; min-height: 112px; }
-  button:disabled { opacity: .45; cursor: wait; }
-  #status { margin: 20px 0 8px; min-height: 52px; padding: 14px 16px; border-radius: 12px;
-    background: var(--panel); border: 1px solid #2c2640; }
-  #status.ok { border-color: var(--ok); } #status.cooldown, #status.busy, #status.closed { border-color: var(--warn); }
-  #status.error { border-color: var(--bad); }
-  #who { color: var(--muted); font-size: 14px; margin: 4px 0 0; }
-  footer { color: var(--muted); font-size: 13px; margin-top: 24px; text-align: center; }
-</style>
+<link rel="stylesheet" href="/app.css">
 </head>
 <body>
 <main>
@@ -52,57 +20,9 @@
   </div>
   <div id="status" role="status" aria-live="polite">Choose your curse.</div>
   <p id="who"></p>
-  <footer>One summon every little while per guest. This network is not connected to the internet.</footer>
+  <footer>One summon every little while per guest. This network is not connected to the internet.<br>
+  <strong>This page never asks for passwords, payment or app installs.</strong> If a page here does, it isn't ours.</footer>
 </main>
-<script>
-(function () {
-  var statusEl = document.getElementById('status');
-  var whoEl = document.getElementById('who');
-  var buttons = Array.prototype.slice.call(document.querySelectorAll('button[data-cmd]'));
-  var timer = null;
-
-  function setStatus(kind, text) { statusEl.className = kind || ''; statusEl.textContent = text; }
-  function lock(on) { buttons.forEach(function (b) { b.disabled = on; }); }
-
-  function countdown(secs, text) {
-    clearInterval(timer);
-    var left = secs;
-    lock(true);
-    setStatus('cooldown', text);
-    timer = setInterval(function () {
-      left -= 1;
-      if (left <= 0) { clearInterval(timer); lock(false); setStatus('', 'Ready. Choose your curse.'); }
-      else { setStatus('cooldown', 'The clouds are recharging. Try again in ' + left + ' s.'); }
-    }, 1000);
-  }
-
-  function refreshWho() {
-    fetch('/api/status', { cache: 'no-store' }).then(function (r) { return r.json(); })
-      .then(function (d) { whoEl.textContent = d.who || ''; }).catch(function () {});
-  }
-
-  function summon(cmd) {
-    lock(true);
-    setStatus('', 'Calling the storm...');
-    fetch('/api/summon', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command: cmd }) })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (d.status === 'ok') {
-          document.body.classList.remove('flash'); void document.body.offsetWidth;
-          document.body.classList.add('flash');
-          if (navigator.vibrate) { navigator.vibrate([40, 60, 120]); }
-        }
-        if (d.retry_after) { countdown(d.retry_after, d.message); }
-        else { setStatus(d.status, d.message); lock(false); }
-        refreshWho();
-      })
-      .catch(function () { setStatus('error', "The spirits didn't answer. Try again."); lock(false); });
-  }
-
-  buttons.forEach(function (b) { b.addEventListener('click', function () { summon(b.getAttribute('data-cmd')); }); });
-  refreshWho();
-})();
-</script>
+<script src="/app.js"></script>
 </body>
 </html>

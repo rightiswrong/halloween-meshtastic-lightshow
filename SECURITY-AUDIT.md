@@ -6,6 +6,51 @@
 | **Code reviewed** | `main` at commit `74ebeac` ("Host the translator on a Raspberry Pi instead of a Proxmox VM") |
 | **Method** | Source and configuration review, threat modelling from the outside in, and targeted local tests of the edge web server. No testing on real radios, Wi-Fi hardware or Home Assistant. |
 | **Audience** | Entry- and mid-level security staff. Terms are explained the first time they appear, and in the [glossary](#glossary). |
+| **Remediation** | Status updated 25 October 2026, after the fixes. See [section 0](#0-remediation-status). The findings below describe the system **as audited**. |
+
+---
+
+## 0. Remediation status
+
+All 21 findings were addressed: 13 fixed in code or configuration, 7 mitigated, and 1
+partly fixed. "Mitigated" means the risk is reduced but some of it is inherent, or
+depends on how you deploy. Each fix has a test or check where one is possible. As with
+the audit itself, none of this has been run on real radios or a live Home Assistant yet.
+
+| ID | Status | What changed | Verified by |
+|---|---|---|---|
+| F-01 | **Fixed** | New `SB2` protocol: every line carries an HMAC-SHA256 tag (link secret, separate from the channel PSK) and a sequence number. The translator keeps a replay window whose high-water mark survives reboots. An edge that lost its counter gets a signed `STALE` reply and skips ahead | `test_protocol` (every one-character change rejected; wrong key; reply-as-request); `test_translator` (replay runs once; replay after a reboot refused) |
+| F-02 | **Fixed** (default) | Webhook mode is the default: the translator holds **no Home Assistant token**. The `storm_webhook` automation is local-only and POST-only, allows four verbs, and clamps strength. Token mode remains, with a warning at every start | `test_ha` (webhook sends no credentials); `test_config` |
+| F-03 | Mitigated | Docs: IoT network or VLAN with its own password, firewall the porch radio's API to the translator only, mount it out of reach, or use USB mode (no Wi-Fi password on the radio) | Operator checklist in `docs/SECURITY.md` |
+| F-04 | **Fixed** | Bluetooth off on both radios in every mode (docs). Both services log `RADIO CHECK: Bluetooth is ON` at startup if it isn't | `test_mesh` |
+| F-05 | Mitigated | Separate web and mesh budgets (web 6/min, mesh 2/min by default), so a spoofed-identity radio flood can't starve guests at the gate. Mesh users can still be starved by a mesh flood, which is inherent to unauthenticated node IDs | `test_end_to_end.test_mesh_flood_cannot_starve_the_web` |
+| F-06 | **Fixed** | Every reply to a mesh user is throttled (3 per sender, then 1 per 10 s; 20/min overall). At most 8 DMs wait for a worker; the rest are dropped silently | `test_end_to_end.test_dm_flood_is_throttled` |
+| F-07 | **Fixed** | The app serves at most 48 connections at once and closes extras without a thread. One summon in flight per guest. The firewall caps each guest at 16 connections and rate-limits new ones. systemd `TasksMax=128`, `MemoryMax=256M` | Re-measured: 400 idle sockets from one client now give **51 threads** (was 403), with 352 refused. `test_web.test_connection_cap` |
+| F-08 | Mitigated | Edge firewall now defaults to *drop* on every interface; Ethernet allows only SSH. `install.sh --harden-ssh` sets keys-only SSH (refuses if you have no key, so you can't lock yourself out). New `docs/KEY_ROTATION.md`. A physical attacker can still take the radio | `nft -c`; shellcheck in CI |
+| F-09 | Mitigated | Page and sign text: "never asks for passwords, payment or app installs". 15-minute leases, 48 client slots, dead clients dropped, optional WPA2 documented. Evil twins and deauth are inherent to open Wi-Fi | `test_web` (page text) |
+| F-10 | Mitigated | Web cooldowns are keyed on the MAC address from dnsmasq's lease file, so changing IP by hand no longer resets them. MAC addresses are still spoofable; the web budget caps the total | `test_web.test_lease_table_maps_ip_to_mac` |
+| F-11 | **Fixed** | Minimum firmware 2.7.15 documented. Both services log a `RADIO CHECK` warning for older firmware | `test_mesh` |
+| F-12 | Mitigated | Webhook mode sends no token, so nothing reusable crosses the LAN. HTTPS is still recommended for token mode | `test_ha` |
+| F-13 | Partly fixed | pip now runs as the unprivileged service user (code then made root-owned); `meshtastic>=2.5,<3`; CI actions pinned to commit SHAs; `pip-audit` and `shellcheck` in CI. **Open:** a hash-locked requirements file (it couldn't be generated in this environment) | CI |
+| F-14 | **Fixed** | Private-channel traffic is sent with `hop_limit = 1` (configurable) | `test_translator.test_replies_use_the_hop_limit`, `test_end_to_end` |
+| F-15 | **Fixed** | PING has its own limit. BUSY, STALE and resent replies share a budget of about 1 per second. The work queue is bounded at 16 | `test_translator` (ping limit, quiet BUSY, bounded queue) |
+| F-16 | Mitigated | Docs: keep the translator Pi indoors, consider USBGuard. The `--usb` installer prints a reminder | — |
+| F-17 | **Fixed** | Mesh names hidden by default ("a mesh visitor"). Summon log kept 7 days. `log-dhcp` off | `test_end_to_end` (privacy, retention) |
+| F-18 | **Fixed** | Replies are signed; forged replies are dropped | `test_protocol`, `test_end_to_end.test_edge_ignores_forged_replies` |
+| F-19 | **Fixed** | `docs/SECURITY.md` rewritten to match the real guarantees | — |
+| F-20 | **Fixed** (CSP) | Script and styles moved to `/app.js` and `/app.css`; CSP is now `default-src 'none'` with `'self'` only, no `unsafe-inline`. The stdlib server stays, behind the F-07 limits | `test_web`; page checked in a headless browser with no console errors |
+| F-21 | **Fixed** | README: demo listens on `127.0.0.1` only; keep it that way | — |
+
+**Residual risks to know about:**
+- **The edge CM4 now holds the link secret.** If it's compromised, an attacker can send
+  valid commands. They are still limited by the translator's rate limits and show hours,
+  and get no LAN access. That was already true before the fix.
+- **Webhook mode can't read Home Assistant's show switch.** When
+  `input_boolean.storm_show_running` is off but the translator's `[show] hours` say open,
+  guests are told "summoned" but nothing happens. Keep both schedules aligned.
+- **Upgrading needs a new secret on both boxes.** `SB1` is gone. Run the installers
+  again (the edge generates `/etc/storm/link.secret`), copy the secret to the translator,
+  and add the webhook id to Home Assistant.
 
 ---
 

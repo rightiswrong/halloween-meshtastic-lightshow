@@ -7,12 +7,15 @@ from datetime import datetime
 from stormshow.bbs.service import StormBBS
 from stormshow.config import EdgeConfig, RadioConfig, TranslatorConfig
 from stormshow.loopback import FakeHomeAssistant, LoopbackMesh
+from stormshow.protocol import LinkKey
 from stormshow.translator.service import BoltCounter, Translator
 
 EDGE = "!0000ed9e"
 PORCH = "!0000beef"
 GUEST = "!00006e57"
 STRANGER = "!badc0ffe"
+KEY = LinkKey(bytes(range(32)))
+OTHER_KEY = LinkKey(bytes(range(1, 33)))
 
 
 class FakeClock:
@@ -27,13 +30,17 @@ def edge_config(**kw) -> EdgeConfig:
     base = dict(
         radio=RadioConfig(port="loopback", private_channel=1),
         porch_node_id=PORCH,
+        link_key=KEY,
         reply_timeout_s=2,
         guest_cooldown_s=30,
-        global_per_minute=60,
-        global_burst=10,
+        web_per_minute=60,
+        web_burst=10,
+        mesh_per_minute=60,
+        mesh_burst=10,
         listen="127.0.0.1",
         web_port=0,
         portal_url="http://portal.test/",
+        dhcp_leases=None,
     )
     base.update(kw)
     return EdgeConfig(**base)
@@ -43,7 +50,9 @@ def translator_config(**kw) -> TranslatorConfig:
     base = dict(
         radio=RadioConfig(host="loopback", private_channel=1),
         edge_node_ids=[EDGE],
+        link_key=KEY,
         ha_url="http://fake",
+        ha_mode="token",
         ha_token="fake",
         show_entity="input_boolean.storm_show_running",
         scripts={v: f"script.storm_{v.lower()}" for v in ("STRIKE", "STORM", "FIRE", "HEART")},

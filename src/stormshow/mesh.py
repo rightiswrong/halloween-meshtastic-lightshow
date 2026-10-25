@@ -17,6 +17,7 @@ from .config import RadioConfig
 log = logging.getLogger(__name__)
 
 BROADCAST = "^all"
+MIN_FIRMWARE = (2, 7, 15)  # CVE-2025-53627 is fixed in 2.7.15 (SECURITY-AUDIT.md F-11)
 
 
 class MeshUnavailable(RuntimeError):
@@ -26,7 +27,7 @@ class MeshUnavailable(RuntimeError):
 class Transport(Protocol):
     def my_node_id(self) -> str | None: ...
     def node_name(self, node_id: str) -> str | None: ...
-    def send_text(self, text: str, destination: str, channel: int) -> None: ...
+    def send_text(self, text: str, destination: str, channel: int, hop_limit: int | None = None) -> None: ...
 
 
 PacketHandler = Callable[[dict[str, Any]], None]
@@ -89,6 +90,8 @@ class MeshLink:
                 self._iface = iface
                 self._ready.set()
                 log.info("radio connected as %s", self.my_node_id())
+                for warning in radio_warnings(iface):
+                    log.warning("RADIO CHECK: %s", warning)
                 self._lost.wait()
                 if not self._stop.is_set():
                     log.warning("radio connection lost; reconnecting")
@@ -130,7 +133,7 @@ class MeshLink:
         user = (nodes.get(node_id) or {}).get("user") or {}
         return user.get("longName") or user.get("shortName")
 
-    def send_text(self, text: str, destination: str, channel: int) -> None:
+    def send_text(self, text: str, destination: str, channel: int, hop_limit: int | None = None) -> None:
         iface = self._iface
         if iface is None:
             raise MeshUnavailable("radio not connected")
@@ -140,7 +143,41 @@ class MeshLink:
                 destinationId=destination,
                 wantAck=destination != BROADCAST,
                 channelIndex=channel,
+                hopLimit=hop_limit,
             )
+
+
+def parse_version(text: str) -> tuple[int, ...]:
+    """'2.7.15.567b8ea' -> (2, 7, 15). Unparseable -> ()."""
+    parts = []
+    for piece in str(text).split(".")[:3]:
+        digits = "".join(ch for ch in piece if ch.isdigit())
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+def radio_warnings(iface: Any) -> list[str]:
+    """Security checks on the connected radio's own settings (F-04, F-11)."""
+    warnings = []
+    version = getattr(getattr(iface, "metadata", None), "firmware_version", "") or ""
+    parsed = parse_version(version)
+    if not parsed:
+        warnings.append("could not read the firmware version")
+    elif parsed < MIN_FIRMWARE:
+        need = ".".join(map(str, MIN_FIRMWARE))
+        warnings.append(f"firmware {version} is older than {need}; update it (CVE-2025-53627)")
+    try:
+        bt = iface.localNode.localConfig.bluetooth
+        if bt.enabled:
+            warnings.append(
+                "Bluetooth is ON: anyone nearby may pair (screenless default PIN is 123456). "
+                "Run: meshtastic --set bluetooth.enabled false"
+            )
+    except AttributeError:
+        warnings.append("could not read the Bluetooth setting")
+    return warnings
 
 
 def packet_text(packet: dict[str, Any]) -> str | None:

@@ -9,13 +9,19 @@
 #        light.spooky_overhead        your Gledopto light (Spooky Overhead firmware)
 #        media_player.porch_speaker   the speaker that plays the thunder
 #        storm/thunder_*.mp3          your sound files, in the media folder: /media/storm/
-#   4. Developer tools -> YAML -> reload Scripts and Input booleans (or restart).
+#   4. Add the webhook id to /config/secrets.yaml (the SAME value as the translator's
+#      /etc/storm/webhook.id; generate with: openssl rand -hex 24):
+#        storm_webhook_id: "<that id>"
+#   5. Restart Home Assistant.
 #
 # How a strike feels: the overhead strip flashes first, then the thunder arrives a
 # random 0.4-2.2 s later, as if the bolt were a few hundred metres away. That ordering
 # also hides any audio latency, so nothing has to be synchronised.
 #
-# The translator calls these four scripts with script.turn_on and nothing else.
+# The translator reaches Home Assistant only through the storm_webhook automation at the
+# end of this file (SECURITY-AUDIT.md F-02). That webhook needs no token, accepts only
+# local POSTs, and can only start these four scripts with a strength clamped to 0..1.
+# (Legacy "token" mode calls the scripts with script.turn_on instead.)
 # spooky_sound.send_cue without a device_id targets every Spooky Sound device, i.e.
 # the Gledopto once it is added in the Spooky Sound integration.
 
@@ -213,6 +219,54 @@ script:
 
 # Optional: show hours. Edit the times, or toggle the helper by hand.
 automation:
+  # The translator's only way in (webhook mode). Keep the webhook id secret.
+  - id: storm_webhook
+    alias: "Storm: summon from the mesh"
+    mode: queued
+    max: 10
+    triggers:
+      - trigger: webhook
+        webhook_id: !secret storm_webhook_id
+        allowed_methods:
+          - POST
+        local_only: true
+    conditions:
+      - condition: state
+        entity_id: input_boolean.storm_show_running
+        state: "on"
+      - condition: template
+        value_template: >-
+          {{ trigger.json is mapping
+             and trigger.json.get('verb') in ['STRIKE', 'STORM', 'FIRE', 'HEART'] }}
+    actions:
+      - variables:
+          verb: "{{ trigger.json.verb }}"
+          strength: "{{ [[trigger.json.get('strength', 0.8) | float(0.8), 0.0] | max, 1.0] | min }}"
+      - choose:
+          - conditions: "{{ verb == 'STRIKE' }}"
+            sequence:
+              - action: script.turn_on
+                target:
+                  entity_id: script.storm_strike
+                data:
+                  variables:
+                    strength: "{{ strength }}"
+          - conditions: "{{ verb == 'STORM' }}"
+            sequence:
+              - action: script.turn_on
+                target:
+                  entity_id: script.storm_storm
+          - conditions: "{{ verb == 'FIRE' }}"
+            sequence:
+              - action: script.turn_on
+                target:
+                  entity_id: script.storm_fire
+          - conditions: "{{ verb == 'HEART' }}"
+            sequence:
+              - action: script.turn_on
+                target:
+                  entity_id: script.storm_heart
+
   - id: storm_show_open
     alias: "Storm: open the show"
     triggers:

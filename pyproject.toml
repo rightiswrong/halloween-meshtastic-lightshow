@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Meshtastic-triggered Halloween lightning: an edge Storm BBS with a guest hotspot, and a trusted-side translator to Home Assistant"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["meshtastic>=2.5"]
+dependencies = ["meshtastic>=2.5,<3"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
@@ -16,12 +16,13 @@ dev = ["pytest>=8", "ruff>=0.6"]
 [project.scripts]
 storm-bbs = "stormshow.bbs.__main__:main"
 storm-translator = "stormshow.translator.__main__:main"
+storm-sign = "stormshow.signtool:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"stormshow.bbs" = ["static/*.html"]
+"stormshow.bbs" = ["static/*.html", "static/*.js", "static/*.css"]
 
 [tool.ruff]
 line-length = 120

@@ -1,23 +1,37 @@
 # storm-bbs (edge CM4) configuration -> /etc/storm/edge.toml
-# This box is on the UNTRUSTED side: it holds no Home Assistant token and no
-# home Wi-Fi credentials. Its only link to the house is the private LoRa channel.
+# This box is on the UNTRUSTED side: it holds no Home Assistant credentials and no
+# home Wi-Fi password. Its only link to the house is the private LoRa channel.
 
 [radio]
-# Edge T-Beam on USB. Find it with: ls /dev/serial/by-id/
+# Edge T-Beam on USB. Prefer the stable name: ls /dev/serial/by-id/
 port = "/dev/ttyACM0"
 # Channel index of the private channel on BOTH T-Beams (same name and PSK). Not 0.
 private_channel = 1
-# Node ID of the porch T-Beam (meshtastic --host <porch> --info, "Owner" line / "!xxxxxxxx").
+# Node ID of the porch T-Beam (meshtastic --info, "!xxxxxxxx").
 porch_node_id = "!a1b2c3d4"
 # How long a guest waits for the translator's answer before "the spirits didn't answer".
 reply_timeout_s = 25
 
+[link]
+# The link secret signs every command (SB2 protocol). It is NOT the channel PSK.
+# Same value on the translator. Generate once:  openssl rand -base64 32
+# Install:  sudo install -m 640 -o root -g storm /dev/stdin /etc/storm/link.secret
+secret_file = "/etc/storm/link.secret"
+# Hops for private-channel traffic. 1 = direct or one relay; 0 = direct only.
+hop_limit = 1
+
 [limits]
-# One summon per guest (web client IP or mesh node) per this many seconds.
+# One summon per guest (web device or mesh node) per this many seconds.
 guest_cooldown_s = 30
-# Shared ceiling across all guests: sustained rate and burst.
-global_per_minute = 6
-global_burst = 3
+# Separate shared budgets, so a radio flood can't starve the gate (or the reverse).
+web_per_minute = 6
+web_burst = 3
+mesh_per_minute = 2
+mesh_burst = 2
+# Replies to mesh users: per sender, and overall. Beyond these the bot stays silent.
+mesh_reply_cooldown_s = 10
+mesh_replies_per_minute = 20
+max_pending_dms = 8
 
 [web]
 # The hotspot address (see deploy/edge/). Port 80 so captive-portal probes land here.
@@ -25,7 +39,19 @@ listen = "10.66.0.1"
 port = 80
 portal_url = "http://10.66.0.1/"
 title = "Summon the Storm"
+# Connections served at once; extras are closed without a thread.
+max_connections = 48
+# Guests are identified by MAC from this file (changing IP doesn't reset a cooldown).
+dhcp_leases = "/var/lib/misc/dnsmasq.leases"
 
 [store]
-# SQLite log of summons (who, what, outcome). Remove to keep no log.
+# SQLite log of summons. Remove 'path' to keep no log.
 path = "/var/lib/storm-bbs/storm.db"
+# Outgoing sequence numbers. Must survive reboots; don't delete it.
+seq_path = "/var/lib/storm-bbs/seq.json"
+
+[privacy]
+# Show mesh users' radio names on the page and in WHO. Off: "a mesh visitor".
+show_mesh_names = false
+# Delete summon log rows older than this. 0 keeps nothing.
+log_retention_days = 7

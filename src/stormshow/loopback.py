@@ -25,6 +25,7 @@ class LoopbackMesh:
         self._nodes: dict[int, LoopbackNode] = {}
         self._queue: queue.Queue = queue.Queue()
         self.sent: list[tuple[str, str, int, str]] = []  # (from, to, channel, text)
+        self.hop_limits: list[int | None] = []  # parallel to sent
         self.drop: Callable[[str, str, int, str], bool] = lambda *_: False  # simulate loss
         self._thread = threading.Thread(target=self._deliver, name="loopback", daemon=True)
         self._thread.start()
@@ -35,12 +36,13 @@ class LoopbackMesh:
         self._nodes[num] = n
         return n
 
-    def _send(self, src: LoopbackNode, text: str, destination: str, channel: int) -> None:
+    def _send(self, src: LoopbackNode, text: str, destination: str, channel: int, hop_limit: int | None = None) -> None:
         if not src.up:
             raise MeshUnavailable("node is down")
         if channel not in src.channels:
             raise ValueError(f"node has no channel {channel}")
         self.sent.append((src.node_id, destination, channel, text))
+        self.hop_limits.append(hop_limit)
         if self.drop(src.node_id, destination, channel, text):
             return
         to = BROADCAST_NUM if destination == BROADCAST else int(destination.lstrip("!"), 16)
@@ -91,15 +93,17 @@ class LoopbackNode:
         node = self.mesh._nodes.get(int(node_id.lstrip("!"), 16))
         return node.name if node else None
 
-    def send_text(self, text: str, destination: str, channel: int) -> None:
-        self.mesh._send(self, text, destination, channel)
+    def send_text(self, text: str, destination: str, channel: int, hop_limit: int | None = None) -> None:
+        self.mesh._send(self, text, destination, channel, hop_limit)
 
 
 class FakeHomeAssistant:
-    """Stands in for ``HomeAssistant``: records calls, can be closed or broken."""
+    """Stands in for the HA clients: records triggers, can be closed or broken."""
+
+    has_state = True
 
     def __init__(self) -> None:
-        self.calls: list[tuple[str, dict | None]] = []
+        self.calls: list[tuple[str, float | None]] = []
         self.states: dict[str, str] = {}
         self.fail = False
 
@@ -113,10 +117,10 @@ class FakeHomeAssistant:
             raise HAError("fake outage")
         return self.states.get(entity_id)
 
-    def run_script(self, entity_id: str, variables: dict | None = None) -> None:
+    def trigger(self, verb: str, strength: float | None) -> None:
         from .translator.ha import HAError
 
         if self.fail:
             raise HAError("fake outage")
-        log.info("[fake HA] %s %s", entity_id, variables or "")
-        self.calls.append((entity_id, variables))
+        log.info("[fake HA] %s %s", verb, "" if strength is None else strength)
+        self.calls.append((verb, strength))

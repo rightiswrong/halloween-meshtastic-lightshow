@@ -1,43 +1,61 @@
 # storm-translator (Raspberry Pi) configuration -> /etc/storm/translator.toml
-# This Pi is on the TRUSTED side. It acts only on SB1 requests that arrive on the
-# private channel from an allowlisted edge node, and runs one HA script per request.
+# This Pi is on the TRUSTED side. It acts only on signed, fresh SB2 requests that
+# arrive on the private channel from an allowlisted edge node.
 
 [radio]
-# Porch T-Beam on your Wi-Fi, reached over its TCP API (port 4403).
-# Give it a DHCP reservation. The node accepts ONE API client at a time:
-# close the phone app / CLI while the translator runs.
+# Porch T-Beam on Wi-Fi, reached over its TCP API (port 4403). Give it a DHCP
+# reservation, ideally on an IoT VLAN that only this Pi can reach.
 host = "porch-tbeam.lan"
-# Alternatively, if this Pi sits near the porch, plug the porch T-Beam into it over USB
-# (the radio then needs no Wi-Fi) and install with --usb. Prefer /dev/serial/by-id/... :
+# Or, if this Pi sits near the porch, plug the porch T-Beam in over USB and install
+# with --usb (the radio then holds no Wi-Fi password). Prefer /dev/serial/by-id/... :
 # port = "/dev/ttyACM0"
 private_channel = 1
 # Node ID(s) of the edge T-Beam. Requests from anyone else are dropped.
 edge_node_ids = ["!e1e2e3e4"]
 
+[link]
+# Same secret as the edge (openssl rand -base64 32). NOT the channel PSK.
+secret_file = "/etc/storm/link.secret"
+hop_limit = 1
+
 [homeassistant]
 url = "http://homeassistant.lan:8123"
-# A long-lived token from a dedicated, non-admin HA user. install.sh creates this file
-# (mode 640, root:storm-translator); paste the token with: sudoedit /etc/storm/ha.token
-token_file = "/etc/storm/ha.token"
+# "webhook" (recommended): this Pi holds no token. The storm_webhook automation in
+# homeassistant/packages/storm.yaml can only run the four Halloween effects.
+mode = "webhook"
+# The webhook id is a secret: generate with  openssl rand -hex 24
+webhook_id_file = "/etc/storm/webhook.id"
+# "token" mode (legacy): a long-lived token can call ANY Home Assistant service.
+# mode = "token"
+# token_file = "/etc/storm/ha.token"
+# show_entity = "input_boolean.storm_show_running"   # token mode only
 verify_tls = true
 # ca_file = "/etc/storm/ha-ca.pem"
 timeout_s = 5
-# When this entity is not "on", requests are answered CLOSED. Remove to always allow.
-show_entity = "input_boolean.storm_show_running"
+
+[show]
+# Local show hours (this Pi's clock). Outside them, guests are told the storm sleeps.
+# Remove to always allow. The HA switch input_boolean.storm_show_running also gates
+# everything inside Home Assistant.
+hours = "18:00-22:00"
 
 [scripts]
-# One HA script per verb (see homeassistant/storm_scripts.yaml).
+# Used in token mode only. Webhook mode maps verbs to scripts inside Home Assistant.
 strike = "script.storm_strike"
 storm = "script.storm_storm"
 fire = "script.storm_fire"
 heart = "script.storm_heart"
 
 [limits]
-# Defense in depth: even a compromised edge station can't exceed this.
+# Defense in depth: even a compromised edge station can't exceed these.
 per_minute = 12
 burst = 3
+ping_per_minute = 6
+max_queue = 16
 
 [state]
 # Bolt counter for "Bolt #347 tonight". A night starts at reset_hour local time.
 path = "/var/lib/storm-translator/bolts.json"
+# Highest sequence number accepted (replay protection). Must survive reboots.
+link_path = "/var/lib/storm-translator/link.json"
 reset_hour = 12

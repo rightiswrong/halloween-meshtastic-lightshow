@@ -10,6 +10,9 @@ SupplementaryGroups=dialout
 ExecStart=/opt/storm-bbs/bin/storm-bbs --config /etc/storm/edge.toml
 Restart=always
 RestartSec=5
+# A flood of connections can't take down the whole box (SECURITY-AUDIT.md F-07).
+TasksMax=128
+MemoryMax=256M
 StateDirectory=storm-bbs
 # Port 80 without root.
 AmbientCapabilities=CAP_NET_BIND_SERVICE

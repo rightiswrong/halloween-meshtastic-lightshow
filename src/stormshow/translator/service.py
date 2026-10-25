@@ -2,16 +2,16 @@
 
 It listens to the porch Meshtastic node and acts only on messages that
 
-1. arrive on the private channel (whose PSK only the edge and porch radios hold),
-2. come from an allowlisted edge node ID, and
-3. match the ``SB1`` request grammar exactly.
+1. arrive on the private channel,
+2. come from an allowlisted edge node ID,
+3. match the ``SB2`` request grammar exactly, **and carry a valid HMAC tag** made with
+   the link secret (the channel key alone is not enough: SECURITY-AUDIT.md F-01), and
+4. have a sequence number it has not accepted before (replays are refused).
 
-Each accepted request becomes one ``script.turn_on`` call in Home Assistant. The
-translator never forwards text, never runs anything else, and rate-limits itself, so
-even a compromised edge station can only do what a guest can.
-
-Note: Home Assistant has no per-service permissions for API tokens. The allowlist
-here, not the token, is what limits what the mesh can do. Keep the token on this Pi.
+Each accepted request becomes one Home Assistant call: by default a webhook that can
+only run the four Halloween effects (F-02). The translator never forwards text and
+rate-limits itself, including its own replies, so even a compromised edge station can
+only do what a guest can (F-15).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ import logging
 import os
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -31,11 +32,12 @@ from .. import protocol as P
 from ..config import TranslatorConfig
 from ..mesh import BROADCAST, MeshUnavailable, Transport, packet_channel, packet_from, packet_text
 from ..ratelimit import TokenBucket
-from .ha import HAError, HomeAssistant
+from ..seqstate import ReceiveWindow
+from .ha import HAError
 
 log = logging.getLogger(__name__)
 
-DEDUP_WINDOW_S = 120.0
+REPLY_CACHE = 128
 
 
 class BoltCounter:
@@ -80,27 +82,47 @@ class BoltCounter:
             log.exception("could not save the bolt count")
 
 
+def in_show_hours(hours: tuple | None, now: datetime) -> bool:
+    """True if ``now`` is inside 'start-end' local time; handles shows that run past midnight."""
+    if hours is None:
+        return True
+    start, end = hours
+    t = now.time()
+    if start <= end:
+        return start <= t < end
+    return t >= start or t < end
+
+
 class Translator:
     def __init__(
         self,
         cfg: TranslatorConfig,
-        ha: HomeAssistant,
+        ha: Any,
         transport: Transport,
         counter: BoltCounter | None = None,
         clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], datetime] = datetime.now,
+        window: ReceiveWindow | None = None,
     ) -> None:
         self.cfg = cfg
         self.ha = ha
         self.transport = transport
         self.counter = counter or BoltCounter(cfg.state_path, cfg.reset_hour)
+        self.window = window or ReceiveWindow(cfg.link_state_path)
         self.clock = clock
+        self.wall_clock = wall_clock
+        self._key = cfg.link_key
         self._allowed = frozenset(cfg.edge_node_ids)
-        self._bucket = TokenBucket(cfg.per_minute / 60.0, cfg.burst, clock())
-        self._recent: dict[str, tuple[float, str | None]] = {}  # rid -> (when, reply text)
+        now = clock()
+        self._bucket = TokenBucket(cfg.per_minute / 60.0, cfg.burst, now)
+        self._ping_bucket = TokenBucket(cfg.ping_per_minute / 60.0, 2, now)
+        self._courtesy = TokenBucket(1.0, 2, now)  # BUSY/STALE/resent replies: ~1 per second
+        self._answered: OrderedDict[int, str] = OrderedDict()  # seq -> reply text
         self._lock = threading.Lock()
+        self._queued = 0
         # One worker: Home Assistant calls run in arrival order, never in parallel.
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="translator")
-        self.stats = {"accepted": 0, "dropped": 0, "busy": 0, "errors": 0}
+        self.stats = {"accepted": 0, "dropped": 0, "busy": 0, "errors": 0, "replayed": 0, "overflow": 0}
 
     # ------------------------------------------------------------------ radio input
     def on_packet(self, packet: dict[str, Any]) -> None:
@@ -114,34 +136,56 @@ class Translator:
         if sender not in self._allowed:
             self._drop(f"sender {sender} not allowlisted", text)
             return
-        req = P.parse_request(text)
+        req = P.parse_request(text, self._key)
         if req is None:
-            self._drop(f"not a valid request from {sender}", text)
+            self._drop(f"bad syntax or signature from {sender}", text)
             return
 
         now = self.clock()
         with self._lock:
-            self._recent = {r: v for r, v in self._recent.items() if now - v[0] < DEDUP_WINDOW_S}
-            seen = self._recent.get(req.rid)
-            if seen is not None:
-                if seen[1] is not None:  # already answered: the edge missed our reply
-                    log.info("duplicate %s; resending %s", text, seen[1])
-                    self._pool.submit(self._send, seen[1])
-                return  # still processing: ignore the duplicate
-            self._recent[req.rid] = (now, None)
+            if not self.window.is_fresh(req.seq):
+                self.stats["replayed"] += 1
+                cached = self._answered.get(req.seq)
+                if not self._courtesy.take(now):
+                    return  # replies to replays are rate-limited too (F-15)
+                if cached is not None:  # the edge missed our reply: resend it, run nothing
+                    log.info("duplicate seq %d; resending the reply", req.seq)
+                    self._enqueue(self._send, cached)
+                elif req.seq <= self.window.highest - self.window.size:
+                    # Older than the window: a replay, or an edge that lost its counter.
+                    log.warning("stale or replayed seq %d (highest %d)", req.seq, self.window.highest)
+                    self._enqueue(self._finish, req, P.Reply(req.seq, P.STATUS_STALE, self.window.highest))
+                return  # otherwise: a duplicate of a request still being processed
+            self.window.accept(req.seq)
 
-        if req.verb == "PING":
-            self._pool.submit(self._finish, req, P.Reply(req.rid, P.STATUS_PONG))
+            if req.verb == "PING":
+                if self._ping_bucket.take(now):
+                    self._enqueue(self._finish, req, P.Reply(req.seq, P.STATUS_PONG))
+                return
+            if not self._bucket.take(now):
+                self.stats["busy"] += 1
+                if self._courtesy.take(now):
+                    self._enqueue(self._finish, req, P.Reply(req.seq, P.STATUS_BUSY))
+                return
+            self.stats["accepted"] += 1
+            log.info("accepted seq %d %s %s", req.seq, req.verb, "" if req.level is None else req.level)
+            self._enqueue(self._process, req)
+
+    def _enqueue(self, fn: Callable, *args: Any) -> None:
+        """Queue work, but never more than ``max_queue`` items (call with the lock held)."""
+        if self._queued >= self.cfg.max_queue:
+            self.stats["overflow"] += 1
             return
-        with self._lock:
-            allowed = self._bucket.take(now)
-        if not allowed:
-            self.stats["busy"] += 1
-            self._pool.submit(self._finish, req, P.Reply(req.rid, P.STATUS_BUSY))
-            return
-        self.stats["accepted"] += 1
-        log.info("accepted %s from %s", text, sender)
-        self._pool.submit(self._process, req)
+
+        def run() -> None:
+            try:
+                fn(*args)
+            finally:
+                with self._lock:
+                    self._queued -= 1
+
+        self._queued += 1
+        self._pool.submit(run)
 
     def _drop(self, why: str, text: str) -> None:
         self.stats["dropped"] += 1
@@ -153,37 +197,42 @@ class Translator:
             reply = self.execute(req)
         except Exception:  # noqa: BLE001 - always answer the edge
             log.exception("unexpected error running %s", req)
-            reply = P.Reply(req.rid, P.STATUS_ERR)
+            reply = P.Reply(req.seq, P.STATUS_ERR)
         self._finish(req, reply)
 
     def execute(self, req: P.Request) -> P.Reply:
         """Run one accepted request against Home Assistant and build the reply."""
+        if not in_show_hours(self.cfg.show_hours, self.wall_clock()):
+            log.info("outside show hours")
+            return P.Reply(req.seq, P.STATUS_CLOSED)
         try:
-            if self.cfg.show_entity:
+            if self.cfg.show_entity and getattr(self.ha, "has_state", False):
                 state = self.ha.state(self.cfg.show_entity)
                 if state != "on":
                     log.info("show is closed (%s = %s)", self.cfg.show_entity, state)
-                    return P.Reply(req.rid, P.STATUS_CLOSED)
-            variables = {"strength": round(req.level / 100, 2)} if req.level is not None else None
-            self.ha.run_script(self.cfg.scripts[req.verb], variables)
+                    return P.Reply(req.seq, P.STATUS_CLOSED)
+            strength = round(req.level / 100, 2) if req.level is not None else None
+            self.ha.trigger(req.verb, strength)
         except HAError as err:
             self.stats["errors"] += 1
             log.error("%s failed: %s", req.verb, err)
-            return P.Reply(req.rid, P.STATUS_ERR)
-        return P.Reply(req.rid, P.STATUS_OK, self.counter.increment())
+            return P.Reply(req.seq, P.STATUS_ERR)
+        return P.Reply(req.seq, P.STATUS_OK, self.counter.increment())
 
     def _finish(self, req: P.Request, reply: P.Reply) -> None:
-        text = reply.encode()
+        text = reply.encode(self._key)
         with self._lock:
-            self._recent[req.rid] = (self.clock(), text)
+            self._answered[req.seq] = text
+            while len(self._answered) > REPLY_CACHE:
+                self._answered.popitem(last=False)
         self._send(text)
 
     def _send(self, text: str) -> None:
         try:
-            self.transport.send_text(text, BROADCAST, self.cfg.radio.private_channel)
-            log.info("replied %s", text)
+            self.transport.send_text(text, BROADCAST, self.cfg.radio.private_channel, self.cfg.hop_limit)
+            log.info("replied %s", text.rsplit(" ", 1)[0])
         except MeshUnavailable:
-            log.warning("radio down; reply %s not sent", text)
+            log.warning("radio down; reply not sent")
 
     def drain(self, timeout: float = 5.0) -> None:
         """Wait for queued work (tests)."""
