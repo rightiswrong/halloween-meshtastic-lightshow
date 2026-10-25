@@ -53,7 +53,8 @@ lines of Python, standard library plus `meshtastic`. If you'd also like a classi
 | `deploy/edge/` | hostapd, dnsmasq (captive DNS), nftables isolation, systemd units, `install.sh` |
 | `deploy/translator/` | Hardened systemd unit and `install.sh` for Raspberry Pi OS (`--usb` for a USB-attached porch radio) |
 | `config/*.example.toml` | Annotated configs for both services |
-| `docs/` | [Radio setup](docs/RADIO_SETUP.md) · [Home Assistant](docs/HOME_ASSISTANT.md) · [Test plan](docs/TEST_PLAN.md) · [Security model](docs/SECURITY.md) |
+| `docs/` | [Hardened design](docs/HARDENED_DESIGN.md) · [Radio setup](docs/RADIO_SETUP.md) · [Home Assistant](docs/HOME_ASSISTANT.md) · [Test plan](docs/TEST_PLAN.md) · [Security model](docs/SECURITY.md) · [Key rotation](docs/KEY_ROTATION.md) |
+| `CHANGELOG.md` | Release notes |
 
 ## Quick start
 
@@ -131,5 +132,5 @@ The tests cover:
   `meshtastic.receive.text`). Hostapd and nftables configs are syntax-checked, not field-tested.
 - ⚠️ The HA package's light snapshot and restore logic, and the webhook automation, are
   untested in a live HA instance. Run T0 first, and check the automation's Traces.
-- 🔒 Security: see [SECURITY-AUDIT.md](SECURITY-AUDIT.md) for the audit and the status of
+- 🔒 Security: see [docs/HARDENED_DESIGN.md](docs/HARDENED_DESIGN.md) for the hardened design, [SECURITY-AUDIT.md](SECURITY-AUDIT.md) for the audit and the status of
   each finding, and [docs/KEY_ROTATION.md](docs/KEY_ROTATION.md) for rotating secrets.

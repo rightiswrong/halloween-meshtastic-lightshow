@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stormshow"
-version = "0.1.0"
+version = "1.0.0"
 description = "Meshtastic-triggered Halloween lightning: an edge Storm BBS with a guest hotspot, and a trusted-side translator to Home Assistant"
 readme = "README.md"
 requires-python = ">=3.11"
